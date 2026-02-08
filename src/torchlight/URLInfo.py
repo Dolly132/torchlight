@@ -114,7 +114,7 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         "format": "m4a/bestaudio/best",
         "simulate": True,
         "keepvideo": False,
-        "cookies": "config/cookies.txt",
+        "cookies": "/app/config/cookies.txt",
     }
     if proxy:
         ydl_opts["proxy"] = proxy
