@@ -11,7 +11,9 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
+
 # --- URL DATA HELPERS ---
+
 
 async def get_url_data(url: str) -> tuple[bytes, str, int]:
     async with aiohttp.ClientSession() as session:
@@ -74,7 +76,9 @@ async def get_url_text(url: str) -> str:
     content, content_type, content_length = await get_url_data(url=url)
     return get_page_text(content=content, content_type=content_type, content_length=content_length)
 
+
 # --- YOUTUBE CORE LOGIC ---
+
 
 def get_url_youtube_info(url: str, proxy: str = "") -> dict:
     ydl_opts = {
@@ -153,3 +157,4 @@ def get_url_real_time(url: str) -> int:
             except (ValueError, IndexError):
                 continue
     return 0
+    

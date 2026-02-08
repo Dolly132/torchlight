@@ -791,10 +791,7 @@ class YouTubeSearch(BaseCommand):
         title_lower = title.lower()
 
         if any(banned.lower() in title_lower for banned in keywords_banned):
-            self.torchlight.SayChat(
-                f"{{darkred}}[YouTube]{{default}} {title} has been flagged as "
-                "inappropriate content, skipping"
-            )
+            self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} has been flagged as inappropriate content, skipping")
             return 1
 
         # Format Metadata
@@ -802,9 +799,7 @@ class YouTubeSearch(BaseCommand):
         duration = str(datetime.timedelta(seconds=duration_raw))
         views = info.get("view_count", 0)
 
-        self.torchlight.SayChat(
-            f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views:,}"
-        )
+        self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views:,}")
 
         # Handle Playback
         real_time = get_url_real_time(url=input_keywords)
