@@ -15,6 +15,7 @@ from torchlight.Utils import Utils
 
 logger = logging.getLogger(__name__)
 
+
 async def get_url_data(url: str) -> tuple[bytes, str, int]:
     async with aiohttp.ClientSession() as session:
         resp = await asyncio.wait_for(session.get(url), 5)
@@ -79,6 +80,7 @@ def get_url_real_time(url: str) -> int:
             if time_str:
                 return Utils.ParseTime(time_str)
     return 0
+
 
 def get_url_youtube_info(url: str, proxy: str = "") -> dict:
     ydl_opts = {
