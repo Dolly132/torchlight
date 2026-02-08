@@ -632,7 +632,7 @@ class VoiceTrigger(BaseCommand):
 
         if random_trigger_name:
             self.torchlight.SayChat(
-                f"Now playing {random_trigger_name}"
+                f"Now playing {self.random_trigger_name}"
             )
 
         return audio_clip.Play()
