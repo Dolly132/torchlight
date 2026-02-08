@@ -106,14 +106,10 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
     # https://github.com/ytdl-org/youtube-dl/blob/3e4cedf9e8cd3157df2457df7274d0c842421945/youtube_dl/YoutubeDL.py#L137-L312
     # https://github.com/yt-dlp/yt-dlp/blob/master/yt_dlp/YoutubeDL.py#L192
     ydl_opts = {
-        "extract_flat": True,
-        "skip_download": True,
-        "debug_printtraffic": False,
-        "quiet": True,
-        "no_warnings": True,
         "format": "m4a/bestaudio/best",
-        "simulate": True,
-        "keepvideo": False,
+        "merge_output_format": "mp4",
+        "quiet": False,
+        "no_warnings": True,
         "cookies": "/app/config/cookies.txt",
         "extractor_args": {"youtube": {"player_client": ["android"]}},
         "http_headers": {
