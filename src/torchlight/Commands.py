@@ -31,6 +31,7 @@ from torchlight.URLInfo import (
     get_url_text,
     get_url_youtube_info,
     print_url_metadata,
+    get_first_youtube_result,
 )
 
 
@@ -761,38 +762,33 @@ class YouTubeSearch(BaseCommand):
             return -1
 
         command_config = self.get_config()
-
         input_keywords = message[1]
-        if URLFilter.youtube_regex.search(input_keywords):
-            input_url = input_keywords
-        else:
-            input_url = f"ytsearch3: {input_keywords}"
-
-        real_time = get_url_real_time(url=input_url)
-
         proxy = command_config.get("parameters", {}).get("proxy", "")
 
         try:
-            info = get_url_youtube_info(url=input_url, proxy=proxy)
+            # If input is already a URL, use get_url_youtube_info directly
+            if URLFilter.youtube_regex.search(input_keywords):
+                info = get_url_youtube_info(url=input_keywords, proxy=proxy)
+            else:
+                # Otherwise, perform search using the safe helper
+                info = get_first_youtube_result(input_keywords, proxy=proxy)
+
         except Exception as exc:
-            self.logger.error(f"Failed to extract youtube info from: {input_url}")
+            self.logger.error(f"Failed to extract YouTube info from: {input_keywords}")
             self.logger.error(exc)
             self.torchlight.SayPrivate(
                 player,
-                "An error as occured while trying to retrieve youtube metadata.",
+                "An error occurred while trying to retrieve YouTube metadata.",
             )
             return 1
 
-        if "title" not in info and "url" in info:
-            info = get_url_youtube_info(url=info["url"], proxy=proxy)
-        if info["extractor_key"] == "YoutubeSearch":
-            info = get_first_valid_entry(entries=info["entries"], proxy=proxy)
-
-        title = info["title"]
-        url = get_audio_format(info=info)
+        # Fetch audio URL
+        audio_url = get_audio_format(info=info)
+        title = info.get("title", "Unknown Title")
         title_words = title.split()
-        keywords_banned: list[str] = []
 
+        # Check banned keywords
+        keywords_banned: list[str] = []
         if "parameters" in command_config and "keywords_banned" in command_config["parameters"]:
             keywords_banned = command_config["parameters"]["keywords_banned"]
 
@@ -804,16 +800,18 @@ class YouTubeSearch(BaseCommand):
                     )
                     return 1
 
-        duration = str(datetime.timedelta(seconds=info["duration"]))
-        views = int(info["view_count"])
+        # Duration and views
+        duration = str(datetime.timedelta(seconds=info.get("duration", 0)))
+        views = int(info.get("view_count", 0))
         self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views}")
 
-        audio_clip = self.audio_manager.AudioClip(player, url)
+        # Play audio
+        real_time = get_url_real_time(url=input_keywords)
+        audio_clip = self.audio_manager.AudioClip(player, audio_url)
         if not audio_clip:
             return 1
 
-        self.torchlight.last_url = url
-
+        self.torchlight.last_url = audio_url
         return audio_clip.Play(real_time)
 
 

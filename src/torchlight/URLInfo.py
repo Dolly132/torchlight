@@ -83,6 +83,9 @@ def get_url_real_time(url: str) -> int:
 
 
 def get_url_youtube_info(url: str, proxy: str = "") -> dict:
+    """
+    Extract info from a YouTube URL or search.
+    """
     ydl_opts = {
         "format": "m4a/bestaudio/best",
         "merge_output_format": "mp4",
@@ -108,6 +111,10 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
 
 
 def get_first_valid_entry(entries: list[Any], proxy: str = "") -> dict[str, Any]:
+    """
+    Loop through entries and return the first valid YouTube video.
+    Works for searches and playlists.
+    """
     for entry in entries:
         video_id = str(entry.get("id") or entry.get("videoId") or "")
         if not video_id:
@@ -127,8 +134,28 @@ def get_first_valid_entry(entries: list[Any], proxy: str = "") -> dict[str, Any]
 
 
 def get_audio_format(info: dict[str, Any]) -> str:
+    """
+    Get first playable audio URL from info dict.
+    """
     for fmt in info.get("formats", []):
         if "audio_channels" in fmt:
             logger.debug(json.dumps(fmt, indent=2))
             return fmt["url"]
     raise Exception("No compatible audio format found, try something else")
+
+
+# ------------------------------
+# New helper: safe YouTube search
+# ------------------------------
+def get_first_youtube_result(query: str, proxy: str = "") -> dict[str, Any]:
+    """
+    Perform a search query and return the first playable video info.
+    Automatically strips spaces and uses ytsearch1: to avoid 0-item playlists.
+    """
+    query_clean = query.strip()
+    search_url = f"ytsearch1:{query_clean}"
+    info = get_url_youtube_info(search_url, proxy=proxy)
+    entries = info.get("entries", [])
+    if not entries:
+        raise Exception(f"No search results found for '{query_clean}'")
+    return get_first_valid_entry(entries, proxy=proxy)
