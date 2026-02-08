@@ -116,6 +116,14 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         "keepvideo": False,
         "cookies": "/app/config/cookies.txt",
         "extractor_args": {"youtube": {"player_client": ["android"]}},
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Linux; Android 13; Pixel 7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Mobile Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9"
+        },
     }
     if proxy:
         ydl_opts["proxy"] = proxy
