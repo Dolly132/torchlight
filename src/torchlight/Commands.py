@@ -755,7 +755,7 @@ class PlayMusic(BaseCommand):
 
 class YouTubeSearch(BaseCommand):
     async def _func(self, message: list[str], player: Player) -> int:
-       self.logger.debug(f"{sys._getframe().f_code.co_name} {message}")
+        self.logger.debug(f"{sys._getframe().f_code.co_name} {message}")
 
         if self.check_disabled(player):
             return -1
@@ -768,8 +768,6 @@ class YouTubeSearch(BaseCommand):
         proxy = params.get("proxy", "")
 
         try:
-            # Use the refactored helper which internally handles
-            # whether input_keywords is a URL or a search query
             info = get_first_youtube_result(input_keywords, proxy=proxy)
         except Exception as exc:
             self.logger.error(f"Failed to extract YouTube info from: {input_keywords}")
@@ -789,7 +787,7 @@ class YouTubeSearch(BaseCommand):
 
         title = info.get("title", "Unknown Title")
 
-        # 2. Check banned keywords
+        # Check banned keywords
         keywords_banned = params.get("keywords_banned", [])
         title_lower = title.lower()
 
@@ -800,7 +798,7 @@ class YouTubeSearch(BaseCommand):
             )
             return 1
 
-        # 3. Format Metadata
+        # Format Metadata
         duration_raw = info.get("duration", 0)
         duration = str(datetime.timedelta(seconds=duration_raw))
         views = info.get("view_count", 0)
@@ -809,7 +807,7 @@ class YouTubeSearch(BaseCommand):
             f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views:,}"
         )
 
-        # 4. Handle Playback
+        # Handle Playback
         real_time = get_url_real_time(url=input_keywords)
 
         audio_clip = self.audio_manager.AudioClip(player, audio_url)
