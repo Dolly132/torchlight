@@ -87,14 +87,14 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         "no_warnings": True,
         "extract_flat": False,
         "cookies": "/app/config/cookies.txt",
-        "extractor_args": {"youtube": {"player_client": ["android"]}},
+        "extractor_args": {
+            "youtube": {
+                "player_client": "web,default",
+                "player_skip": "webpage,configs",
+            }
+        },
         "http_headers": {
-            "User-Agent": (
-                "Mozilla/5.0 (Linux; Android 13; Pixel 7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Mobile Safari/537.36"
-            ),
-            "Accept-Language": "en-US,en;q=0.9",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
         },
     }
     if proxy:
