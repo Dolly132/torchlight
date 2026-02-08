@@ -157,4 +157,3 @@ def get_url_real_time(url: str) -> int:
             except (ValueError, IndexError):
                 continue
     return 0
-    
