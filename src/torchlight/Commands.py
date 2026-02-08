@@ -53,7 +53,7 @@ class BaseCommand:
         self.trigger_manager = trigger_manager
         self.triggers: list[tuple[str, int] | str | Pattern] = []
         self.level = 0
-        self.random_trigger_name = None
+        self.random_trigger_name: str | None = None
 
         self.init_command()
 
