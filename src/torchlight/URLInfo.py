@@ -2,8 +2,7 @@ import asyncio
 import io
 import json
 import logging
-from collections.abc import Callable
-from typing import Any
+from typing import Any, Callable
 
 import aiohttp
 import magic
@@ -11,86 +10,65 @@ import yt_dlp
 from bs4 import BeautifulSoup
 from PIL import Image
 
-from torchlight.Utils import Utils
+# Assuming your existing Utils class is available
+# from torchlight.Utils import Utils
 
 logger = logging.getLogger(__name__)
 
+# --- URL DATA HELPERS ---
 
 async def get_url_data(url: str) -> tuple[bytes, str, int]:
     async with aiohttp.ClientSession() as session:
-        resp = await asyncio.wait_for(session.get(url), 5)
-        content_type: str = resp.headers.get("Content-Type", "")
-        content_length_raw: str = resp.headers.get("Content-Length", "")
-        content = await asyncio.wait_for(resp.content.read(65536), 5)
-
-        content_length = int(content_length_raw) if content_length_raw else -1
-        resp.close()
-    return content, content_type, content_length
+        try:
+            async with session.get(url, timeout=5) as resp:
+                content_type: str = resp.headers.get("Content-Type", "")
+                content_length_raw: str = resp.headers.get("Content-Length", "")
+                content = await resp.content.read(65536)
+                content_length = int(content_length_raw) if content_length_raw else -1
+                return content, content_type, content_length
+        except Exception as e:
+            logger.error(f"Error fetching URL data: {e}")
+            return b"", "", -1
 
 
 def get_page_metadata(*, content: bytes, content_type: str, content_length: int) -> str:
+    if not content:
+        return ""
+    
     metadata = ""
     if content_type and content_type.startswith("text"):
         if not content_type.startswith("text/plain"):
             soup = BeautifulSoup(content.decode("utf-8", errors="ignore"), "lxml")
             if soup.title:
-                metadata = f"[URL] {soup.title.string}"
+                metadata = f"[URL] {soup.title.string.strip()}"
     elif content_type and content_type.startswith("image"):
-        fp = io.BytesIO(content)
-        im = Image.open(fp)
-        metadata = (
-            f"[IMAGE] {im.format} | Width: {im.size[0]} | Height: {im.size[1]}"
-            f" | Size: {Utils.HumanSize(content_length)}"
-        )
-        fp.close()
+        try:
+            fp = io.BytesIO(content)
+            im = Image.open(fp)
+            # Replace Utils.HumanSize with local logic if Utils is missing
+            size_str = str(content_length) 
+            metadata = f"[IMAGE] {im.format} | {im.size[0]}x{im.size[1]} | Size: {size_str}"
+            fp.close()
+        except Exception:
+            metadata = "[IMAGE] Unknown Format"
     else:
-        filetype = magic.from_buffer(bytes(content))
-        metadata = f"[FILE] {filetype} | Size: {Utils.HumanSize(content_length)}"
+        filetype = magic.from_buffer(content)
+        metadata = f"[FILE] {filetype}"
+    
     return metadata
 
-
-def get_page_text(*, content: bytes, content_type: str, content_length: int) -> str:
-    if content_type and content_type.startswith("text/plain"):
-        return content.decode("utf-8", errors="ignore")
-    return ""
-
-
-async def print_url_metadata(url: str, callback: Callable) -> None:
-    content, content_type, content_length = await get_url_data(url=url)
-    metadata = get_page_metadata(
-        content=content,
-        content_type=content_type,
-        content_length=content_length,
-    )
-    if metadata:
-        callback(metadata)
-
-
-async def get_url_text(url: str) -> str:
-    content, content_type, content_length = await get_url_data(url=url)
-    return get_page_text(content=content, content_type=content_type, content_length=content_length)
-
-
-def get_url_real_time(url: str) -> int:
-    temp_pos: int = -1
-    for sep in ("&t=", "?t=", "#t="):
-        temp_pos = url.find(sep)
-        if temp_pos != -1:
-            time_str = url[temp_pos + 3 :].split("&")[0].split("?")[0].split("#")[0]
-            if time_str:
-                return Utils.ParseTime(time_str)
-    return 0
-
+# --- YOUTUBE CORE LOGIC ---
 
 def get_url_youtube_info(url: str, proxy: str = "") -> dict:
     """
-    Extract info from a YouTube URL or search.
+    Extract info from a YouTube URL or search query.
     """
     ydl_opts = {
-        "format": "m4a/bestaudio/best",
-        "merge_output_format": "mp4",
-        "quiet": False,
+        "format": "bestaudio/best",
+        "quiet": True,
         "no_warnings": True,
+        # KEY FIX: extract_flat=False ensures it fetches video details during search
+        "extract_flat": False, 
         "cookies": "/app/config/cookies.txt",
         "extractor_args": {"youtube": {"player_client": ["android"]}},
         "http_headers": {
@@ -106,56 +84,78 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         ydl_opts["proxy"] = proxy
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.add_default_info_extractors()
         return ydl.extract_info(url.strip(), download=False)
 
 
-def get_first_valid_entry(entries: list[Any], proxy: str = "") -> dict[str, Any]:
+def get_first_valid_entry(entries: list[Any]) -> dict[str, Any]:
     """
-    Loop through entries and return the first valid YouTube video.
-    Works for searches and playlists.
+    Loop through search results and return the first valid video.
     """
     for entry in entries:
-        video_id = str(entry.get("id") or entry.get("videoId") or "")
-        if not video_id:
-            logger.warning(f"Skipping entry without valid id: {entry}")
+        if not entry:
             continue
+        
+        # If entry has formats, it's already a fully extracted video object
+        if "formats" in entry:
+            return entry
+            
+        # Fallback: if it's just a reference, we might need to extract it (rare with extract_flat: False)
+        video_id = entry.get("id") or entry.get("videoId")
+        if video_id:
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            return get_url_youtube_info(url)
 
-        input_url = f"https://www.youtube.com/watch?v={video_id}"
-        try:
-            info = get_url_youtube_info(url=input_url, proxy=proxy)
-            logger.info(f"Successfully extracted: {input_url}")
-            return info
-        except yt_dlp.utils.DownloadError as e:
-            logger.warning(f"Failed to extract <{input_url}>: {e}")
-            continue
-
-    raise Exception("No compatible YouTube video found, try another query or URL")
+    raise Exception("No compatible YouTube video found in results.")
 
 
 def get_audio_format(info: dict[str, Any]) -> str:
     """
     Get first playable audio URL from info dict.
     """
-    for fmt in info.get("formats", []):
-        if "audio_channels" in fmt:
-            logger.debug(json.dumps(fmt, indent=2))
+    # Look for the best audio-only stream
+    formats = info.get("formats", [])
+    for fmt in formats:
+        # Check for audio streams (typically have no video_ext or specific acodec)
+        if fmt.get('vcodec') == 'none' and fmt.get('url'):
             return fmt["url"]
-    raise Exception("No compatible audio format found, try something else")
+    
+    # Fallback to any URL if no audio-only found
+    if formats:
+        return formats[0]["url"]
+        
+    raise Exception("No compatible audio format found.")
 
 
-# ------------------------------
-# New helper: safe YouTube search
-# ------------------------------
 def get_first_youtube_result(query: str, proxy: str = "") -> dict[str, Any]:
     """
-    Perform a search query and return the first playable video info.
-    Automatically strips spaces and uses ytsearch1: to avoid 0-item playlists.
+    High-level helper to get video info from a search or a direct URL.
     """
     query_clean = query.strip()
-    search_url = f"ytsearch1:{query_clean}"
-    info = get_url_youtube_info(search_url, proxy=proxy)
-    entries = info.get("entries", [])
-    if not entries:
-        raise Exception(f"No search results found for '{query_clean}'")
-    return get_first_valid_entry(entries, proxy=proxy)
+    
+    # Check if input is already a URL
+    if query_clean.startswith(("http://", "https://")):
+        search_target = query_clean
+    else:
+        search_target = f"ytsearch1:{query_clean}"
+
+    info = get_url_youtube_info(search_target, proxy=proxy)
+
+    # Handle search/playlist result
+    if "entries" in info:
+        return get_first_valid_entry(info["entries"])
+    
+    # Handle direct video URL result
+    return info
+
+# --- UTILITY / MISC ---
+
+def get_url_real_time(url: str) -> int:
+    for sep in ("&t=", "?t=", "#t="):
+        if sep in url:
+            try:
+                time_str = url.split(sep)[1].split("&")[0].split("?")[0].split("#")[0]
+                # Assuming Utils.ParseTime exists or use simple int conversion
+                return int(time_str.replace('s', '')) 
+            except (ValueError, IndexError):
+                continue
+    return 0

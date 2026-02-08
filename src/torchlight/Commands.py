@@ -755,23 +755,23 @@ class PlayMusic(BaseCommand):
 
 class YouTubeSearch(BaseCommand):
     async def _func(self, message: list[str], player: Player) -> int:
-        self.logger.debug(sys._getframe().f_code.co_name + " " + str(message))
+        self.logger.debug(f"{sys._getframe().f_code.co_name} {message}")
 
         if self.check_disabled(player):
             return -1
 
         command_config = self.get_config()
-        input_keywords = message[1]
-        proxy = command_config.get("parameters", {}).get("proxy", "")
+        input_keywords = message[1].strip()
+        
+        # Get proxy from config if it exists
+        params = command_config.get("parameters", {})
+        proxy = params.get("proxy", "")
 
         try:
-            # If input is already a URL, use get_url_youtube_info directly
-            if URLFilter.youtube_regex.search(input_keywords):
-                info = get_url_youtube_info(url=input_keywords, proxy=proxy)
-            else:
-                # Otherwise, perform search using the safe helper
-                info = get_first_youtube_result(input_keywords, proxy=proxy)
-
+            # Use the refactored helper which internally handles 
+            # whether input_keywords is a URL or a search query
+            info = get_first_youtube_result(input_keywords, proxy=proxy)
+            
         except Exception as exc:
             self.logger.error(f"Failed to extract YouTube info from: {input_keywords}")
             self.logger.error(exc)
@@ -781,33 +781,43 @@ class YouTubeSearch(BaseCommand):
             )
             return 1
 
-        # Fetch audio URL
-        audio_url = get_audio_format(info=info)
+        # 1. Fetch the actual playable audio URL
+        try:
+            audio_url = get_audio_format(info=info)
+        except Exception as exc:
+            self.logger.error(f"Audio extraction failed: {exc}")
+            return 1
+
         title = info.get("title", "Unknown Title")
-        title_words = title.split()
+        
+        # 2. Check banned keywords
+        keywords_banned = params.get("keywords_banned", [])
+        title_lower = title.lower()
 
-        # Check banned keywords
-        keywords_banned: list[str] = []
-        if "parameters" in command_config and "keywords_banned" in command_config["parameters"]:
-            keywords_banned = command_config["parameters"]["keywords_banned"]
+        if any(banned.lower() in title_lower for banned in keywords_banned):
+            self.torchlight.SayChat(
+                f"{{darkred}}[YouTube]{{default}} {title} has been flagged as "
+                "inappropriate content, skipping"
+            )
+            return 1
 
-        for keyword_banned in keywords_banned:
-            for title_word in title_words:
-                if keyword_banned.lower() in title_word.lower():
-                    self.torchlight.SayChat(
-                        f"{{darkred}}[YouTube]{{default}} {title} has been flagged as inappropriate content, skipping"
-                    )
-                    return 1
+        # 3. Format Metadata for Chat
+        # Using timedelta to convert seconds (int) to HH:MM:SS
+        duration_raw = info.get("duration", 0)
+        duration = str(datetime.timedelta(seconds=duration_raw))
+        views = info.get("view_count", 0)
+        
+        self.torchlight.SayChat(
+            f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views:,}"
+        )
 
-        # Duration and views
-        duration = str(datetime.timedelta(seconds=info.get("duration", 0)))
-        views = int(info.get("view_count", 0))
-        self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views}")
-
-        # Play audio
+        # 4. Handle Playback
+        # get_url_real_time looks for ?t= or &t= in the original input
         real_time = get_url_real_time(url=input_keywords)
+        
         audio_clip = self.audio_manager.AudioClip(player, audio_url)
         if not audio_clip:
+            self.logger.error("Failed to create AudioClip")
             return 1
 
         self.torchlight.last_url = audio_url
