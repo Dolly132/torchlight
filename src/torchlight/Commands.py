@@ -755,23 +755,22 @@ class PlayMusic(BaseCommand):
 
 class YouTubeSearch(BaseCommand):
     async def _func(self, message: list[str], player: Player) -> int:
-        self.logger.debug(f"{sys._getframe().f_code.co_name} {message}")
+       self.logger.debug(f"{sys._getframe().f_code.co_name} {message}")
 
         if self.check_disabled(player):
             return -1
 
         command_config = self.get_config()
         input_keywords = message[1].strip()
-        
+
         # Get proxy from config if it exists
         params = command_config.get("parameters", {})
         proxy = params.get("proxy", "")
 
         try:
-            # Use the refactored helper which internally handles 
+            # Use the refactored helper which internally handles
             # whether input_keywords is a URL or a search query
             info = get_first_youtube_result(input_keywords, proxy=proxy)
-            
         except Exception as exc:
             self.logger.error(f"Failed to extract YouTube info from: {input_keywords}")
             self.logger.error(exc)
@@ -781,7 +780,7 @@ class YouTubeSearch(BaseCommand):
             )
             return 1
 
-        # 1. Fetch the actual playable audio URL
+        # Fetch audio URL
         try:
             audio_url = get_audio_format(info=info)
         except Exception as exc:
@@ -789,7 +788,7 @@ class YouTubeSearch(BaseCommand):
             return 1
 
         title = info.get("title", "Unknown Title")
-        
+
         # 2. Check banned keywords
         keywords_banned = params.get("keywords_banned", [])
         title_lower = title.lower()
@@ -801,20 +800,18 @@ class YouTubeSearch(BaseCommand):
             )
             return 1
 
-        # 3. Format Metadata for Chat
-        # Using timedelta to convert seconds (int) to HH:MM:SS
+        # 3. Format Metadata
         duration_raw = info.get("duration", 0)
         duration = str(datetime.timedelta(seconds=duration_raw))
         views = info.get("view_count", 0)
-        
+
         self.torchlight.SayChat(
             f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views:,}"
         )
 
         # 4. Handle Playback
-        # get_url_real_time looks for ?t= or &t= in the original input
         real_time = get_url_real_time(url=input_keywords)
-        
+
         audio_clip = self.audio_manager.AudioClip(player, audio_url)
         if not audio_clip:
             self.logger.error("Failed to create AudioClip")
