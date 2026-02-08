@@ -122,7 +122,7 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/122.0.0.0 Mobile Safari/537.36"
             ),
-            "Accept-Language": "en-US,en;q=0.9"
+            "Accept-Language": "en-US,en;q=0.9",
         },
     }
     if proxy:
