@@ -791,7 +791,9 @@ class YouTubeSearch(BaseCommand):
         title_lower = title.lower()
 
         if any(banned.lower() in title_lower for banned in keywords_banned):
-            self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} has been flagged as inappropriate content, skipping")
+            self.torchlight.SayChat(
+                f"{{darkred}}[YouTube]{{default}} {title} has been flagged as inappropriate content, skipping"
+            )
             return 1
 
         # Format Metadata
