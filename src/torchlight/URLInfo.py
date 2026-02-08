@@ -117,7 +117,7 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
 
         "cookies": "/app/config/cookies.txt",
 
-        "extractor_args": { "youtube": { "player_client": ["android"] }},
+        "extractor_args": {"youtube": {"player_client": ["android"]}},
     }
     if proxy:
         ydl_opts["proxy"] = proxy
