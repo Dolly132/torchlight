@@ -26,7 +26,6 @@ from torchlight.Torchlight import Torchlight
 from torchlight.TriggerManager import TriggerManager
 from torchlight.URLInfo import (
     get_audio_format,
-    get_first_valid_entry,
     get_url_real_time,
     get_url_text,
     get_url_youtube_info,
