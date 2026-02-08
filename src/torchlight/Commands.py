@@ -712,9 +712,7 @@ class VoiceTrigger(BaseCommand):
 
 class Random(VoiceTrigger):
     def get_sound_path(self, player: Player, voice_trigger: str, trigger_number: str) -> str | None:
-        trigger_name, trigger = secrets.choice(
-            list(self.trigger_manager.voice_triggers.items())
-        )
+        trigger_name, trigger = secrets.choice(list(self.trigger_manager.voice_triggers.items()))
 
         self.random_trigger_name = trigger_name
 
