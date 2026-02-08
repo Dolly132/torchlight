@@ -29,7 +29,6 @@ from torchlight.URLInfo import (
     get_first_youtube_result,
     get_url_real_time,
     get_url_text,
-    get_url_youtube_info,
     print_url_metadata,
 )
 
