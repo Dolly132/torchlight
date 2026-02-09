@@ -86,7 +86,7 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         "quiet": True,
         "no_warnings": True,
         "extract_flat": False,
-        "cookies": "/app/config/cookies.txt",
+        "cookiefile": "/app/config/cookies.txt",
         "extractor_args": {
             "youtube": {
                 "player_client": "web,default",
