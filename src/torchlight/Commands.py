@@ -779,7 +779,7 @@ class YouTubeSearch(BaseCommand):
 
         # Fetch audio URL
         try:
-            audio_url = get_audio_format(info=info)
+            audio_url = get_direct_audio_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
         except Exception as exc:
             self.logger.error(f"Audio extraction failed: {exc}")
             return 1
