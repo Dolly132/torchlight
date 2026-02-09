@@ -31,37 +31,27 @@ async def get_url_data(url: str) -> tuple[bytes, str, int]:
             return b"", "", -1
 
 
-def get_page_metadata(
-    *, content: bytes, content_type: str, content_length: int
-) -> str:
+def get_page_metadata(*, content: bytes, content_type: str, content_length: int) -> str:
     if not content:
         return ""
-
-    if content_type.startswith("text"):
-        if not content_type.startswith("text/plain"):
-            soup = BeautifulSoup(content.decode("utf-8", errors="ignore"), "lxml")
-            if soup.title:
-                return f"[URL] {soup.title.string.strip()}"
+    if content_type.startswith("text") and not content_type.startswith("text/plain"):
+        soup = BeautifulSoup(content.decode("utf-8", errors="ignore"), "lxml")
+        if soup.title:
+            return f"[URL] {soup.title.string.strip()}"
     elif content_type.startswith("image"):
         try:
             with io.BytesIO(content) as fp:
                 im = Image.open(fp)
-                return (
-                    f"[IMAGE] {im.format} | {im.size[0]}x{im.size[1]} "
-                    f"| Size: {content_length}"
-                )
+                return f"[IMAGE] {im.format} | {im.size[0]}x{im.size[1]} | Size: {content_length}"
         except Exception:
             return "[IMAGE] Unknown Format"
     else:
         filetype = magic.from_buffer(content)
         return f"[FILE] {filetype}"
-
     return ""
 
 
-def get_page_text(
-    *, content: bytes, content_type: str, content_length: int
-) -> str:
+def get_page_text(*, content: bytes, content_type: str, content_length: int) -> str:
     if content_type.startswith("text/plain"):
         return content.decode("utf-8", errors="ignore")
     return ""
@@ -69,18 +59,14 @@ def get_page_text(
 
 async def print_url_metadata(url: str, callback: Callable) -> None:
     content, content_type, content_length = await get_url_data(url)
-    metadata = get_page_metadata(
-        content=content, content_type=content_type, content_length=content_length
-    )
+    metadata = get_page_metadata(content=content, content_type=content_type, content_length=content_length)
     if metadata:
         callback(metadata)
 
 
 async def get_url_text(url: str) -> str:
     content, content_type, content_length = await get_url_data(url)
-    return get_page_text(
-        content=content, content_type=content_type, content_length=content_length
-    )
+    return get_page_text(content=content, content_type=content_type, content_length=content_length)
 
 
 # --- YOUTUBE CORE ---
@@ -121,14 +107,12 @@ def get_first_valid_entry(entries: list[Any]) -> dict[str, Any]:
         print("ENTRY:", entry)
         if not entry:
             continue
-
         video_id = entry.get("id") or entry.get("videoId")
         if video_id:
             url = f"https://www.youtube.com/watch?v={video_id}"
             info = get_url_youtube_info(url)
             if info and "formats" in info:
                 return info
-
     raise Exception("No compatible YouTube video found in results.")
 
 
@@ -149,7 +133,7 @@ def get_direct_audio_url(youtube_url: str, cookies_file: str = "/app/config/cook
         },
         "extractor_args": {
             "youtube": {
-                "player_client": "web"  # use web client, avoids GVS PO token issues
+                "player_client": "web",
             }
         },
     }
@@ -157,16 +141,13 @@ def get_direct_audio_url(youtube_url: str, cookies_file: str = "/app/config/cook
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(youtube_url, download=False)
 
-    # if info is a playlist/search result, take the first video
     if "entries" in info:
         info = info["entries"][0]
 
-    # pick audio-only format
     for fmt in info.get("formats", []):
         if fmt.get("vcodec") == "none" and fmt.get("url"):
             return fmt["url"]
 
-    # fallback: return the first available format URL
     formats = info.get("formats", [])
     if formats:
         return formats[0]["url"]
@@ -176,11 +157,9 @@ def get_direct_audio_url(youtube_url: str, cookies_file: str = "/app/config/cook
 
 def get_first_youtube_result(query: str, proxy: str = "") -> dict[str, Any]:
     query_clean = query.strip()
-
     if query_clean.startswith(("http://", "https://")):
         search_target = query_clean
     else:
-        # NOTE: Directly use a fixed video URL for Docker-safe tests
         search_target = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 
     info = get_url_youtube_info(search_target, proxy=proxy)
