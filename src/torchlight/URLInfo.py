@@ -1,8 +1,7 @@
 import io
 import logging
 from collections.abc import Callable
-from typing import Any, Tuple
-
+from typing import Any
 import aiohttp
 import magic
 import yt_dlp
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 # --- URL DATA HELPERS ---
 
 
-async def get_url_data(url: str) -> Tuple[bytes, str, int]:
+async def get_url_data(url: str) -> tuple[bytes, str, int]:
     async with aiohttp.ClientSession() as session:
         try:
             async with session.get(url, timeout=5) as resp:
