@@ -117,8 +117,21 @@ def get_first_valid_entry(entries: list[Any]) -> dict[str, Any]:
 
 
 def get_direct_audio_url(youtube_url: str, cookies_file: str = "/app/config/cookies.txt") -> str:
+    """
+    Return the direct URL of the audio stream for a YouTube video.
+
+    Args:
+        youtube_url (str): YouTube video URL
+        cookies_file (str): Path to cookies.txt for authentication
+
+    Returns:
+        str: Direct audio URL
+
+    Raises:
+        Exception: If no compatible audio format is found
+    """
     ydl_opts: dict[str, Any] = {
-        "format": "bestaudio",
+        "format": "bestaudio/best",
         "quiet": True,
         "no_warnings": True,
         "cookiefile": cookies_file,
@@ -133,24 +146,27 @@ def get_direct_audio_url(youtube_url: str, cookies_file: str = "/app/config/cook
         },
         "extractor_args": {
             "youtube": {
-                "player_client": "web",
+                "player_client": "android"  # less restricted than web client
             }
         },
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(youtube_url, download=False)
+        info = ydl.extract_info(youtube_url.strip(), download=False)
 
-    if "entries" in info:
+    # if a search or playlist, take the first video
+    if "entries" in info and info["entries"]:
         info = info["entries"][0]
 
+    # find the best audio-only format
     for fmt in info.get("formats", []):
-        if fmt.get("vcodec") == "none" and fmt.get("url"):
+        if fmt.get("vcodec") == "none" and fmt.get("acodec") not in (None, "none") and fmt.get("url"):
             return fmt["url"]
 
-    formats = info.get("formats", [])
-    if formats:
-        return formats[0]["url"]
+    # fallback: take any format with audio
+    for fmt in info.get("formats", []):
+        if fmt.get("acodec") not in (None, "none") and fmt.get("url"):
+            return fmt["url"]
 
     raise Exception("No compatible audio format found")
 
