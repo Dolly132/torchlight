@@ -12,9 +12,6 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-# --- URL DATA HELPERS ---
-
-
 async def get_url_data(url: str) -> tuple[bytes, str, int]:
     async with aiohttp.ClientSession() as session:
         try:
@@ -77,9 +74,6 @@ async def get_url_text(url: str) -> str:
     return get_page_text(content=content, content_type=content_type, content_length=content_length)
 
 
-# --- YOUTUBE CORE LOGIC ---
-
-
 def get_url_youtube_info(url: str, proxy: str = "") -> dict:
     ydl_opts = {
         "format": "bestaudio/best",
@@ -89,7 +83,7 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         "cookiefile": "/app/config/cookies.txt",
         "extractor_args": {
             "youtube": {
-                "player_client": "web,default",
+                "player_client": ["android"],
                 "player_skip": "webpage,configs",
             }
         },
@@ -111,20 +105,18 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
 
 def get_first_valid_entry(entries: list[Any]) -> dict[str, Any]:
     print("ENTRIES: ", entries)
-
     for entry in entries:
         print("ENTRY: ", entry)
 
         if not entry:
             continue
 
-        if "formats" in entry:
-            return entry
-
         video_id = entry.get("id") or entry.get("videoId")
         if video_id:
             url = f"https://www.youtube.com/watch?v={video_id}"
-            return get_url_youtube_info(url)
+            info = get_url_youtube_info(url)
+            if info and "formats" in info:
+                return info
 
     raise Exception("No compatible YouTube video found in results.")
 
