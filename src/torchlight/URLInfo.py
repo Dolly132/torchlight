@@ -129,9 +129,6 @@ def get_first_valid_entry(entries: list[Any]) -> dict[str, Any]:
     raise Exception("No compatible YouTube video found in results.")
 
 
-import yt_dlp
-from typing import Any
-
 def get_direct_audio_url(youtube_url: str, cookies_file: str = "/app/config/cookies.txt") -> str:
     ydl_opts: dict[str, Any] = {
         "format": "bestaudio",
