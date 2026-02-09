@@ -1,7 +1,10 @@
+# --- standard library ---
 import io
 import logging
 from collections.abc import Callable
 from typing import Any
+
+# --- third-party ---
 import aiohttp
 import magic
 import yt_dlp
