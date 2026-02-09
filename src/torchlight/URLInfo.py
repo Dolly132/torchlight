@@ -110,7 +110,11 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
 
 
 def get_first_valid_entry(entries: list[Any]) -> dict[str, Any]:
+    print("ENTRIES: ", entries)
+    
     for entry in entries:
+        print("ENTRY: ", entry)
+
         if not entry:
             continue
 
