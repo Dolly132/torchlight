@@ -141,6 +141,8 @@ def get_first_youtube_result(query: str, proxy: str = "") -> dict[str, Any]:
     else:
         search_target = f"ytsearch1:{query_clean}"
 
+    search_target = "https://www.youtube.com/watch?v=Jl3m9CKyzDo"
+    
     info = get_url_youtube_info(search_target, proxy=proxy)
 
     if "entries" in info:
