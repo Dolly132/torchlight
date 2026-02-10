@@ -789,7 +789,6 @@ class YouTubeSearch(BaseCommand):
             info = get_first_valid_entry(entries=info["entries"], proxy=proxy)
 
         title = info["title"]
-        self.torchlight.SayChat(f"Youtube Title: {title}")
         url = get_audio_format(info=info)
         title_words = title.split()
         keywords_banned: list[str] = []

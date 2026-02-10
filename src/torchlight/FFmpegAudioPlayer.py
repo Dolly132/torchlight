@@ -238,7 +238,7 @@ class FFmpegAudioPlayer:
 
                 self.seconds += seconds
 
-                if not started:
+                if not started and self.seconds > 0.5:
                     self.logger.info("Streaming %s", self.uri)
                     started = True
                     self.Callback("Play")
@@ -279,9 +279,6 @@ class FFmpegAudioPlayer:
 
             if self.ffmpeg_process is not None:
                 await self.ffmpeg_process.wait()
-
-            if self.seconds == 0.0:
-                self.Stop()
 
         except Exception as exc:
             self.Stop()
