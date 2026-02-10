@@ -26,9 +26,10 @@ from torchlight.Torchlight import Torchlight
 from torchlight.TriggerManager import TriggerManager
 from torchlight.URLInfo import (
     get_direct_audio_url,
-    get_first_youtube_result,
+    get_first_valid_entry,
     get_url_real_time,
     get_url_text,
+    get_url_youtube_info,
     print_url_metadata,
 )
 
@@ -754,64 +755,66 @@ class PlayMusic(BaseCommand):
 
 class YouTubeSearch(BaseCommand):
     async def _func(self, message: list[str], player: Player) -> int:
-        self.logger.debug(f"{sys._getframe().f_code.co_name} {message}")
+        self.logger.debug(sys._getframe().f_code.co_name + " " + str(message))
 
         if self.check_disabled(player):
             return -1
 
         command_config = self.get_config()
-        input_keywords = message[1].strip()
 
-        # Get proxy from config if it exists
-        params = command_config.get("parameters", {})
-        proxy = params.get("proxy", "")
+        input_keywords = message[1]
+        if URLFilter.youtube_regex.search(input_keywords):
+            input_url = input_keywords
+        else:
+            input_url = f"ytsearch3: {input_keywords}"
+
+        real_time = get_url_real_time(url=input_url)
+
+        proxy = command_config.get("parameters", {}).get("proxy", "")
 
         try:
-            info = get_first_youtube_result(input_keywords, proxy=proxy)
+            info = get_url_youtube_info(url=input_url, proxy=proxy)
         except Exception as exc:
-            self.logger.error(f"Failed to extract YouTube info from: {input_keywords}")
+            self.logger.error(f"Failed to extract youtube info from: {input_url}")
             self.logger.error(exc)
             self.torchlight.SayPrivate(
                 player,
-                "An error occurred while trying to retrieve YouTube metadata.",
+                "An error as occured while trying to retrieve youtube metadata.",
             )
             return 1
 
-        # Fetch audio URL
-        try:
-            audio_url = get_direct_audio_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
-        except Exception as exc:
-            self.logger.error(f"Audio extraction failed: {exc}")
-            return 1
+        if "title" not in info and "url" in info:
+            info = get_url_youtube_info(url=info["url"], proxy=proxy)
+        if info["extractor_key"] == "YoutubeSearch":
+            info = get_first_valid_entry(entries=info["entries"], proxy=proxy)
+        
+        title = info["title"]
+        self.torchlight.SayChat(f"Youtube Title: {title}")
+        url = get_audio_format(info=info)
+        title_words = title.split()
+        keywords_banned: list[str] = []
 
-        title = info.get("title", "Unknown Title")
+        if "parameters" in command_config and "keywords_banned" in command_config["parameters"]:
+            keywords_banned = command_config["parameters"]["keywords_banned"]
 
-        # Check banned keywords
-        keywords_banned = params.get("keywords_banned", [])
-        title_lower = title.lower()
+        for keyword_banned in keywords_banned:
+            for title_word in title_words:
+                if keyword_banned.lower() in title_word.lower():
+                    self.torchlight.SayChat(
+                        f"{{darkred}}[YouTube]{{default}} {title} has been flagged as inappropriate content, skipping"
+                    )
+                    return 1
 
-        if any(banned.lower() in title_lower for banned in keywords_banned):
-            self.torchlight.SayChat(
-                f"{{darkred}}[YouTube]{{default}} {title} has been flagged as inappropriate content, skipping"
-            )
-            return 1
+        duration = str(datetime.timedelta(seconds=info["duration"]))
+        views = int(info["view_count"])
+        self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views}")
 
-        # Format Metadata
-        duration_raw = info.get("duration", 0)
-        duration = str(datetime.timedelta(seconds=duration_raw))
-        views = info.get("view_count", 0)
-
-        self.torchlight.SayChat(f"{{darkred}}[YouTube]{{default}} {title} | {duration} | {views:,}")
-
-        # Handle Playback
-        real_time = get_url_real_time(url=input_keywords)
-
-        audio_clip = self.audio_manager.AudioClip(player, audio_url)
+        audio_clip = self.audio_manager.AudioClip(player, url)
         if not audio_clip:
-            self.logger.error("Failed to create AudioClip")
             return 1
 
-        self.torchlight.last_url = audio_url
+        self.torchlight.last_url = url
+
         return audio_clip.Play(real_time)
 
 
