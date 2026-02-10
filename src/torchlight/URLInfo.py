@@ -114,7 +114,19 @@ def get_url_youtube_info(url: str, proxy: str = "") -> dict:
         "format": "m4a/bestaudio/best",
         "simulate": True,
         "keepvideo": False,
+        "noplaylist": True,
+        "nocheckcertificate": True,
+        "add_header": [
+            "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 "
+            "Safari/537.36",
+            "Accept-Language: en-US,en;q=0.9",
+            "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        ],
+        "cookiefile": "/app/config/cookies.txt",
+        "source_address": "0.0.0.0",
     }
+
     if proxy:
         ydl_opts["proxy"] = proxy
     ydl = yt_dlp.YoutubeDL(ydl_opts)
