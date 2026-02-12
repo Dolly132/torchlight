@@ -763,6 +763,7 @@ class YouTubeSearch(BaseCommand):
         command_config = self.get_config()
 
         input_keywords = message[1]
+        self.torchlight.SayChat(f"Your search query: {input_keywords}")
         if URLFilter.youtube_regex.search(input_keywords):
             input_url = input_keywords
         else:
