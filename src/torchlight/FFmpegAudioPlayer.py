@@ -303,14 +303,24 @@ class FFmpegAudioPlayer:
                 if self.started_playing:
                     seconds_elapsed = time.time() - self.started_playing
 
-                if seconds_elapsed > self.seconds:
+                if self.duration_set and seconds_elapsed > self.seconds:
                     seconds_elapsed = self.seconds
 
                 self.Callback("Update", last_seconds_elapsed, seconds_elapsed)
 
-                if seconds_elapsed >= self.seconds:
-                    if not self.stopped_playing:
-                        self.logger.debug("Playback naturally finished.")
+                is_ffmpeg_done = (
+                    self.ffmpeg_process is None 
+                    or self.ffmpeg_process.returncode is not None
+                )
+
+                if self.duration_set and self.seconds > 0 and seconds_elapsed >= self.seconds:
+                    if is_ffmpeg_done:
+                        self.logger.debug("Playback naturally finished (time reached).")
+                        self.Stop(False)
+                        return
+
+                elif not self.duration_set and is_ffmpeg_done:
+                    self.logger.debug("Playback naturally finished (FFmpeg EOF).")
                     self.Stop(False)
                     return
 
