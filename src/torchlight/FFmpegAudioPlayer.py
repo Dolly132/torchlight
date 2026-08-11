@@ -1,15 +1,18 @@
-import aiohttp
 import asyncio
 import datetime
 import logging
+import os
 import socket
 import struct
 import time
 import traceback
-from asyncio import StreamReader, StreamWriter
+from asyncio import StreamReader, StreamWriter, Task
 from asyncio.subprocess import Process
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
+
+import aiohttp
 
 from torchlight.Torchlight import Torchlight
 
@@ -40,11 +43,12 @@ class FFmpegAudioPlayer:
 
         self.started_playing: float | None = None
         self.stopped_playing: float | None = None
-        self.seconds = 0.0
+        self.seconds: float = 0.0
+        self.duration_set: bool = False
 
         self.writer: StreamWriter | None = None
         self.ffmpeg_process: Process | None = None
-        self.stream_task: asyncio.Task | None = None
+        self.stream_task: Task | None = None
         self.session: aiohttp.ClientSession | None = None
 
         self.callbacks: list[tuple[str, Callable]] = []
@@ -54,15 +58,17 @@ class FFmpegAudioPlayer:
         self.Stop()
 
     async def _stream_url_to_ffmpeg(self, uri: str, ffmpeg_command: list[str]) -> None:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/124.0.0.0 Safari/537.36"
-            )
-        }
+        parsed = urlparse(uri)
+        is_local_file = parsed.scheme in ("file", "") or os.path.exists(uri)
 
-        timeout = aiohttp.ClientTimeout(total=None, connect=10.0, sock_read=15.0)
+        if is_local_file:
+            file_path = parsed.path if parsed.scheme == "file" else uri
+
+            if "-i" in ffmpeg_command:
+                idx = ffmpeg_command.index("-i")
+                ffmpeg_command[idx + 1] = file_path
+            else:
+                ffmpeg_command.extend(["-i", file_path])
 
         try:
             _, self.writer = await asyncio.open_connection(self.host, self.port)
@@ -71,10 +77,12 @@ class FFmpegAudioPlayer:
             self.Stop(False)
             return
 
+        stdin_mode = asyncio.subprocess.DEVNULL if is_local_file else asyncio.subprocess.PIPE
+
         try:
             self.ffmpeg_process = await asyncio.create_subprocess_exec(
                 *ffmpeg_command,
-                stdin=asyncio.subprocess.PIPE,
+                stdin=stdin_mode,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
             )
@@ -86,8 +94,19 @@ class FFmpegAudioPlayer:
         if self.ffmpeg_process.stdout:
             asyncio.ensure_future(self._read_stream(self.ffmpeg_process.stdout, self.writer))
 
-        bytes_downloaded: int = 0
-        max_network_retries: int = 5
+        if is_local_file:
+            return
+
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            )
+        }
+        timeout = aiohttp.ClientTimeout(total=None, connect=10.0, sock_read=15.0)
+        bytes_downloaded = 0
+        max_network_retries = 5
 
         try:
             if self.session is None or self.session.closed:
@@ -102,7 +121,6 @@ class FFmpegAudioPlayer:
                 req_headers = headers.copy()
                 if bytes_downloaded > 0:
                     req_headers["Range"] = f"bytes={bytes_downloaded}-"
-                    self.logger.info("Resuming stream from byte %d (Attempt %d)", bytes_downloaded, attempt)
 
                 try:
                     async with self.session.get(
@@ -122,7 +140,7 @@ class FFmpegAudioPlayer:
                                 self.ffmpeg_process.stdin.write(chunk)
                                 await self.ffmpeg_process.stdin.drain()
 
-                        break
+                        break  # Success
 
                 except (asyncio.TimeoutError, aiohttp.ClientError) as err:
                     self.logger.warning("Stream network drop/timeout (%s). Retrying (%d/%d)...", err, attempt, max_network_retries)
@@ -137,6 +155,11 @@ class FFmpegAudioPlayer:
                     await self.ffmpeg_process.stdin.wait_closed()
                 except Exception:
                     pass
+
+    def SetDuration(self, duration: float) -> None:
+        self.seconds = duration
+        if self.seconds > 0:
+            self.duration_set = True
 
     def PlayURI(
         self,
@@ -316,7 +339,8 @@ class FFmpegAudioPlayer:
                 samples = bytes_len / SAMPLEBYTES
                 seconds = samples / self.sample_rate
 
-                self.seconds += seconds
+                if not self.duration_set:
+                    self.seconds += seconds
 
                 if not started:
                     self.logger.info("Streaming %s", self.uri)
