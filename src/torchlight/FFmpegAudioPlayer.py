@@ -73,18 +73,12 @@ class FFmpegAudioPlayer:
 
         curl_command = [
             "/usr/bin/curl",
-            "--silent",
-            "--show-error",
-            "--connect-timeout",
-            "1",
-            "--retry",
-            "2",
-            "--retry-delay",
-            "1",
-            "--output",
-            "-",
             "-L",
-            uri,
+            "--speed-limit", "1000",
+            "--speed-time", "5",
+            "--fail",
+            "--no-buffer",
+            uri
         ]
         if self.proxy:
             curl_command.extend(
