@@ -62,7 +62,7 @@ class FFmpegAudioPlayer:
             )
         }
 
-        timeout = aiohttp.ClientTimeout(total=None, connect=10.0, sock_read=5.0)
+        timeout = aiohttp.ClientTimeout(total=None, connect=10.0, sock_read=15.0)
 
         try:
             _, self.writer = await asyncio.open_connection(self.host, self.port)
@@ -86,32 +86,48 @@ class FFmpegAudioPlayer:
         if self.ffmpeg_process.stdout:
             asyncio.ensure_future(self._read_stream(self.ffmpeg_process.stdout, self.writer))
 
+        bytes_downloaded: int = 0
+        max_network_retries: int = 5
+
         try:
             if self.session is None or self.session.closed:
                 self.session = aiohttp.ClientSession()
 
             proxy_url = self.proxy if self.proxy else None
 
-            async with self.session.get(
-                uri, headers=headers, timeout=timeout, proxy=proxy_url
-            ) as resp:
-                if resp.status >= 400:
-                    self.logger.error("HTTP stream failed with status %d", resp.status)
-                    self.Stop(False)
-                    return
+            for attempt in range(1, max_network_retries + 1):
+                if not self.playing or self.ffmpeg_process.returncode is not None:
+                    break
 
-                async for chunk in resp.content.iter_chunked(32 * 1024):
-                    if not self.playing or self.ffmpeg_process.returncode is not None:
+                req_headers = headers.copy()
+                if bytes_downloaded > 0:
+                    req_headers["Range"] = f"bytes={bytes_downloaded}-"
+                    self.logger.info("Resuming stream from byte %d (Attempt %d)", bytes_downloaded, attempt)
+
+                try:
+                    async with self.session.get(
+                        uri, headers=req_headers, timeout=timeout, proxy=proxy_url
+                    ) as resp:
+                        if resp.status not in (200, 206):
+                            self.logger.error("HTTP stream failed with status %d", resp.status)
+                            break
+
+                        async for chunk in resp.content.iter_chunked(32 * 1024):
+                            if not self.playing or self.ffmpeg_process.returncode is not None:
+                                break
+
+                            bytes_downloaded += len(chunk)
+                            
+                            if self.ffmpeg_process.stdin:
+                                self.ffmpeg_process.stdin.write(chunk)
+                                await self.ffmpeg_process.stdin.drain()
+
                         break
 
-                    if self.ffmpeg_process.stdin:
-                        self.ffmpeg_process.stdin.write(chunk)
-                        await self.ffmpeg_process.stdin.drain()
+                except (asyncio.TimeoutError, aiohttp.ClientError) as err:
+                    self.logger.warning("Stream network drop/timeout (%s). Retrying (%d/%d)...", err, attempt, max_network_retries)
+                    await asyncio.sleep(0.5)
 
-        except asyncio.TimeoutError:
-            self.logger.warning("aiohttp stream timed out (sock_read limit reached).")
-        except aiohttp.ClientError as e:
-            self.logger.warning("aiohttp stream network error: %s", e)
         except Exception as e:
             self.logger.error("Unexpected streaming error: %s", e, exc_info=True)
         finally:
@@ -255,8 +271,6 @@ class FFmpegAudioPlayer:
                     self.logger.error(traceback.format_exc())
 
     async def _updater(self) -> None:
-        MAX_RETRIES: int = 25
-
         try:
             last_seconds_elapsed = 0.0
 
@@ -272,24 +286,6 @@ class FFmpegAudioPlayer:
                 self.Callback("Update", last_seconds_elapsed, seconds_elapsed)
 
                 if seconds_elapsed >= self.seconds:
-                    if self.ffmpeg_process and self.ffmpeg_process.returncode is None:
-                        self.logger.debug("Buffering... waiting for stream data.")
-
-                        for retry in range(1, MAX_RETRIES + 1):
-                            await asyncio.sleep(0.2)
-
-                            if self.seconds > seconds_elapsed:
-                                self.logger.debug(f"Recovered from buffer stall on retry {retry}!")
-                                break
-                        else:
-                            self.logger.warning("Stream timed out waiting for audio data.")
-                            if not self.stopped_playing:
-                                self.logger.debug("BUFFER UNDERRUN!")
-                            self.Stop(False)
-                            return
-
-                        continue
-
                     if not self.stopped_playing:
                         self.logger.debug("Playback naturally finished.")
                     self.Stop(False)
