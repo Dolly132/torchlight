@@ -223,6 +223,10 @@ class FFmpegAudioPlayer:
 
     # @profile
     async def _updater(self) -> None:
+        # Retries track in case of a buffer loss
+        retry_count: int = 0
+        MAX_RETRIES: int = 25
+
         try:
             last_seconds_elapsed = 0.0
 
@@ -238,12 +242,22 @@ class FFmpegAudioPlayer:
                 self.Callback("Update", last_seconds_elapsed, seconds_elapsed)
 
                 if seconds_elapsed >= self.seconds:
+                    # Fix: Sometimes the stream will stop playing but the seconds_elapsed will not reach self.seconds.
+                    # That might happen because of a buffer underrun or some other issue. In that case, we can wait a bit and retry.
+                    if self.ffmpeg_process and self.ffmpeg_process.returncode is None:
+                        await asyncio.sleep(0.1)
+                        retry_count += 1
+                        if retry_count <= MAX_RETRIES:
+                            continue
+
                     if not self.stopped_playing:
                         self.logger.debug("BUFFER UNDERRUN!")
+
                     self.Stop(False)
                     return
 
                 last_seconds_elapsed = seconds_elapsed
+                retry_count = 0
 
                 await asyncio.sleep(0.1)
         except Exception as exc:
