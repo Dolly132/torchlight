@@ -29,9 +29,12 @@ class FFmpegAudioPlayer:
         self.host = self.config["Host"]
         self.port = self.config["Port"]
         self.sample_rate = float(self.config["SampleRate"])
-        self.volume = float(self.config["Volume"])
-        self.speed = float(self.config["Speed"])
-        self.pitch = float(self.config["Pitch"])
+
+        params = self.config.get("AudioParams", {})
+
+        self.volume = float(params.get("Volume", {}).get("Default", 1.0))
+        self.speed = float(params.get("Speed", {}).get("Default", 1.0))
+        self.pitch = float(params.get("Pitch", {}).get("Default", 1.0))
         self.proxy = self.config.get("Proxy", "")
 
         self.started_playing: float | None = None
@@ -53,6 +56,7 @@ class FFmpegAudioPlayer:
         self,
         uri: str,
         position: int | None,
+        duration: int | None,
         *args: Any,
         volume: float | None = None,
         speed: float | None = None,
@@ -105,7 +109,6 @@ class FFmpegAudioPlayer:
             "s16le",
             "-vn",
             *args,
-            "-",
         ]
 
         if position is not None:
@@ -117,6 +120,16 @@ class FFmpegAudioPlayer:
                 ]
             )
             self.position = position
+
+        if duration is not None:
+            ffmpeg_command.extend(
+                [
+                    "-t",
+                    str(duration),
+                ]
+            )
+
+        ffmpeg_command.append("-")
 
         self.logger.debug(curl_command)
         self.logger.debug(ffmpeg_command)

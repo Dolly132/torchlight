@@ -7,7 +7,7 @@ from typing import Any
 
 from torchlight.AccessManager import AccessManager
 from torchlight.AudioManager import AudioManager
-from torchlight.Commands import BaseCommand, VoiceTrigger
+from torchlight.Commands import BaseCommand, Say, VoiceTrigger
 from torchlight.PlayerManager import Player, PlayerManager
 from torchlight.Torchlight import Torchlight
 from torchlight.TriggerManager import TriggerManager
@@ -41,6 +41,7 @@ class CommandHandler:
         subklasses: list[type[Any]] = []
         subklasses.extend(BaseCommand.__subclasses__())
         subklasses.extend(VoiceTrigger.__subclasses__())
+        subklasses.extend(Say.__subclasses__())
         for subklass in sorted(subklasses, key=lambda x: x.order, reverse=True):
             try:
                 command = subklass(
@@ -73,13 +74,13 @@ class CommandHandler:
 
     # @profile
     async def HandleCommand(self, line: str, player: Player, from_menu: bool = False) -> int | None:
-        if from_menu:
-            message = line.split(sep=" ", maxsplit=2)  # 2 because the !search command requires another arg for page
-        else:
-            message = line.split(sep=" ", maxsplit=1)
+        message = line.split(sep=" ", maxsplit=1)
+        if not message[0].startswith(("!", "#", "_", "$", "@", "%", "^", "&", "*", "-")):
+            return None
 
-        if len(message) < 2:
+        if len(message) == 1 or not message[1]:
             message.append("")
+
         message[1] = message[1].strip()
 
         if message[1] and self.torchlight.last_url:
@@ -87,9 +88,6 @@ class CommandHandler:
             line = message[0] + " " + message[1]
 
         level = player.admin.level
-
-        if not message[0].startswith(("!", "#", "_", "$", "@", "%", "^", "&", "*")):
-            return None
 
         ret_message: str | None = None
         ret: int | None = None
@@ -104,7 +102,7 @@ class CommandHandler:
                 elif isinstance(trigger, str):
                     is_match = message[0].lower() == trigger.lower()
                 else:  # compiled regex
-                    is_match = trigger.search(line) is not None
+                    is_match = trigger.search(message[0]) is not None
 
                 if not is_match:
                     continue
@@ -129,7 +127,7 @@ class CommandHandler:
                             ret = ret_temp
                     else:
                         ret = await command._func(message, player)
-                        if from_menu and command.__class__.__name__ == "VoiceTrigger" and ret:
+                        if from_menu and command.__class__.__name__ in ("VoiceTrigger", "MyInstantsSearch") and ret:
                             self.torchlight.SayChat(f"{{olive}}{player.name}: {{default}}{line}")
 
                 except Exception as e:
