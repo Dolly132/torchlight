@@ -223,8 +223,6 @@ class FFmpegAudioPlayer:
 
     # @profile
     async def _updater(self) -> None:
-        # Retries track in case of a buffer loss
-        retry_count: int = 0
         MAX_RETRIES: int = 25
 
         try:
@@ -242,24 +240,33 @@ class FFmpegAudioPlayer:
                 self.Callback("Update", last_seconds_elapsed, seconds_elapsed)
 
                 if seconds_elapsed >= self.seconds:
-                    # Fix: Sometimes the stream will stop playing but the seconds_elapsed will not reach self.seconds.
-                    # That might happen because of a buffer underrun or some other issue. In that case, we can wait a bit and retry.
+                    # Check if FFmpeg is still alive and buffering
                     if self.ffmpeg_process and self.ffmpeg_process.returncode is None:
-                        await asyncio.sleep(0.1)
-                        retry_count += 1
-                        if retry_count <= MAX_RETRIES:
-                            continue
+                        self.logger.debug("Buffering... waiting for stream data.")
+
+                        for retry in range(1, MAX_RETRIES + 1):
+                            await asyncio.sleep(0.2)
+
+                            if self.seconds > seconds_elapsed:
+                                self.logger.debug(f"Recovered from buffer stall on retry {retry}!")
+                                break
+                        else:
+                            self.logger.warning("Stream timed out waiting for audio data.")
+                            if not self.stopped_playing:
+                                self.logger.debug("BUFFER UNDERRUN!")
+                            self.Stop(False)
+                            return
+
+                        continue
 
                     if not self.stopped_playing:
-                        self.logger.debug("BUFFER UNDERRUN!")
-
+                        self.logger.debug("Playback naturally finished.")
                     self.Stop(False)
                     return
 
                 last_seconds_elapsed = seconds_elapsed
-                retry_count = 0
-
                 await asyncio.sleep(0.1)
+
         except Exception as exc:
             self.Stop()
             self.torchlight.SayChat(f"Error: {str(exc)}")
