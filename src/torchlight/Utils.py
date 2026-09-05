@@ -1,7 +1,26 @@
+import asyncio
+import logging
 import math
+from collections.abc import Coroutine
+from typing import Any
 
 
 class Utils:
+    @staticmethod
+    def FireAndForget(coro: Coroutine[Any, Any, Any], logger: logging.Logger) -> asyncio.Task:
+        # Logs exceptions instead of letting asyncio silently discard them on an untracked task.
+        task = asyncio.ensure_future(coro)
+
+        def _log_exception(task: asyncio.Task) -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                logger.error("Unhandled exception in fire-and-forget task", exc_info=exc)
+
+        task.add_done_callback(_log_exception)
+        return task
+
     @staticmethod
     def GetNum(text_num: str) -> str:
         ret = ""
