@@ -33,6 +33,11 @@ class CommandHandler:
 
     def Setup(self) -> None:
         counter = len(self.commands)
+        for command in self.commands:
+            try:
+                command.close()
+            except Exception:
+                self.logger.error(traceback.format_exc())
         self.commands.clear()
         if counter:
             self.logger.info(sys._getframe().f_code.co_name + f" Unloaded {counter} commands!")
@@ -102,7 +107,8 @@ class CommandHandler:
                 elif isinstance(trigger, str):
                     is_match = message[0].lower() == trigger.lower()
                 else:  # compiled regex
-                    is_match = trigger.search(message[0]) is not None
+                    r_match = trigger.search(message[0])
+                    is_match = r_match is not None
 
                 if not is_match:
                     continue
@@ -127,7 +133,7 @@ class CommandHandler:
                             ret = ret_temp
                     else:
                         ret = await command._func(message, player)
-                        if from_menu and command.__class__.__name__ in ("VoiceTrigger", "MyInstantsSearch") and ret:
+                        if from_menu and command.echo_from_menu and ret:
                             self.torchlight.SayChat(f"{{olive}}{player.name}: {{default}}{line}")
 
                 except Exception as e:

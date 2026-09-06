@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import datetime
 import logging
 import os
@@ -18,6 +19,26 @@ from torchlight.MyInstants import MYINSTANTS_URL
 from torchlight.Torchlight import Torchlight
 
 SAMPLEBYTES = 2
+
+# Extra request headers some hosts require, keyed by domain. Matched against the URI's
+# hostname (exact or subdomain), so a new host means adding an entry here rather than
+# another special case inside the streaming path.
+DOMAIN_HEADER_PROFILES: dict[str, dict[str, str]] = {
+    "myinstants.com": {
+        "Referer": MYINSTANTS_URL,
+        "Sec-Fetch-Dest": "audio",
+        "Sec-Fetch-Mode": "no-cors",
+        "Sec-Fetch-Site": "same-origin",
+    },
+}
+
+
+def get_domain_headers(uri: str) -> dict[str, str]:
+    hostname = (urlparse(uri).hostname or "").lower()
+    for domain, headers in DOMAIN_HEADER_PROFILES.items():
+        if hostname == domain or hostname.endswith(f".{domain}"):
+            return headers
+    return {}
 
 
 class FFmpegAudioPlayer:
@@ -41,6 +62,7 @@ class FFmpegAudioPlayer:
         self.speed = float(params.get("Speed", {}).get("Default", 1.0))
         self.pitch = float(params.get("Pitch", {}).get("Default", 1.0))
         self.proxy = self.config.get("Proxy", "")
+        self.ffmpeg_path = self.config.get("FfmpegPath", "/usr/bin/ffmpeg")
 
         self.started_playing: float | None = None
         self.stopped_playing: float | None = None
@@ -58,6 +80,20 @@ class FFmpegAudioPlayer:
     def __del__(self) -> None:
         self.logger.debug("~FFmpegAudioPlayer()")
         self.Stop()
+
+    async def _write_to_ffmpeg(self, chunk: bytes) -> None:
+        proc = self.ffmpeg_process
+        if proc and proc.stdin and not proc.stdin.is_closing():
+            proc.stdin.write(chunk)
+            await proc.stdin.drain()
+
+    async def _close_ffmpeg_stdin(self) -> None:
+        if self.ffmpeg_process and self.ffmpeg_process.stdin:
+            try:
+                self.ffmpeg_process.stdin.close()
+                await self.ffmpeg_process.stdin.wait_closed()
+            except Exception as e:
+                self.logger.debug("Failed to cleanly close FFmpeg stdin: %s", e)
 
     async def _stream_url_to_ffmpeg(self, uri: str, ffmpeg_command: list[str], needs_cf_bypass: bool = False) -> None:
         parsed = urlparse(uri)
@@ -119,46 +155,107 @@ class FFmpegAudioPlayer:
             "Accept": "*/*",
             "Accept-Language": "en-US,en;q=0.9",
         }
-        if needs_cf_bypass and "myinstants.com" in uri:
-            headers["Referer"] = MYINSTANTS_URL
-            headers["Sec-Fetch-Dest"] = "audio"
-            headers["Sec-Fetch-Mode"] = "no-cors"
-            headers["Sec-Fetch-Site"] = "same-origin"
+        if needs_cf_bypass:
+            headers.update(get_domain_headers(uri))
 
         if needs_cf_bypass:
             queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=10)
+            max_network_retries = 5
+
+            def enqueue_chunk(chunk: bytes) -> bool:
+                # Hand a chunk to the event-loop queue from this worker thread, waking every
+                # 0.5s so a Stop() (self.playing -> False) can't wedge us on a full queue.
+                while self.playing:
+                    future = asyncio.run_coroutine_threadsafe(queue.put(chunk), self.torchlight.loop)
+                    try:
+                        future.result(timeout=0.5)
+                        return True
+                    except concurrent.futures.TimeoutError:
+                        future.cancel()
+                    except Exception as err:
+                        self.logger.debug("curl_cffi enqueue failed: %s", err)
+                        return False
+                return False
 
             def sync_fetch_curl_cffi() -> None:
                 proxies: cffi_requests.ProxySpec | None = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+                bytes_downloaded = 0
                 try:
-                    resp = cffi_requests.get(
-                        uri,
-                        headers=headers,
-                        cookies=cookies,
-                        proxies=proxies,
-                        impersonate="chrome120",
-                        stream=True,
-                        timeout=15,
-                    )
-                    if resp.status_code not in (200, 206):
-                        self.logger.error("HTTP stream failed via curl_cffi with status %d", resp.status_code)
-                        asyncio.run_coroutine_threadsafe(queue.put(None), self.torchlight.loop)
-                        return
+                    # Retry parity with the aiohttp path: resume from bytes_downloaded with a
+                    # Range header instead of restarting the clip from zero on a transient drop.
+                    for attempt in range(1, max_network_retries + 1):
+                        if not self.playing:
+                            return
 
-                    for chunk in resp.iter_content(chunk_size=32 * 1024):
-                        if not chunk or not self.playing:
-                            break
+                        req_headers = dict(headers)
+                        if bytes_downloaded > 0:
+                            req_headers["Range"] = f"bytes={bytes_downloaded}-"
 
-                        while self.playing:
+                        try:
+                            resp = cffi_requests.get(
+                                uri,
+                                headers=req_headers,
+                                cookies=cookies,
+                                proxies=proxies,
+                                impersonate="chrome120",
+                                stream=True,
+                                timeout=15,
+                            )
+                        except Exception as err:
+                            self.logger.warning(
+                                "curl_cffi connection failed (%s). Retrying (%d/%d)...",
+                                err,
+                                attempt,
+                                max_network_retries,
+                            )
+                            time.sleep(0.5)
+                            continue
+
+                        try:
+                            if resp.status_code not in (200, 206):
+                                self.logger.error("HTTP stream failed via curl_cffi with status %d", resp.status_code)
+                                return
+
+                            # A plain 200 answering a Range request means the server ignored the
+                            # header and restarted from byte 0; drop what ffmpeg already has.
+                            skip = bytes_downloaded if (bytes_downloaded and resp.status_code == 200) else 0
+                            dropped = False
+
                             try:
-                                future = asyncio.run_coroutine_threadsafe(queue.put(chunk), self.torchlight.loop)
-                                future.result(timeout=0.5)
-                                break
-                            except Exception:
-                                if not self.playing:
-                                    break
-                except Exception as err:
-                    self.logger.error("curl_cffi fetch exception: %s", err)
+                                for chunk in resp.iter_content(chunk_size=32 * 1024):
+                                    if not self.playing:
+                                        return
+                                    if not chunk:
+                                        continue
+
+                                    if skip:
+                                        if len(chunk) <= skip:
+                                            skip -= len(chunk)
+                                            continue
+                                        chunk = chunk[skip:]
+                                        skip = 0
+
+                                    bytes_downloaded += len(chunk)
+                                    if not enqueue_chunk(chunk):
+                                        return
+                            except Exception as err:
+                                dropped = True
+                                self.logger.warning(
+                                    "curl_cffi stream dropped after %d bytes (%s). Retrying (%d/%d)...",
+                                    bytes_downloaded,
+                                    err,
+                                    attempt,
+                                    max_network_retries,
+                                )
+                        finally:
+                            resp.close()
+
+                        if not dropped:
+                            return
+
+                        time.sleep(0.5)
+
+                    self.logger.error("curl_cffi stream gave up after %d attempts", max_network_retries)
                 finally:
                     asyncio.run_coroutine_threadsafe(queue.put(None), self.torchlight.loop)
 
@@ -171,17 +268,10 @@ class FFmpegAudioPlayer:
                     if chunk is None:
                         break
 
-                    if proc.stdin and not proc.stdin.is_closing():
-                        proc.stdin.write(chunk)
-                        await proc.stdin.drain()
+                    await self._write_to_ffmpeg(chunk)
             finally:
                 await fetch_future
-                if self.ffmpeg_process and self.ffmpeg_process.stdin:
-                    try:
-                        self.ffmpeg_process.stdin.close()
-                        await self.ffmpeg_process.stdin.wait_closed()
-                    except Exception as e:
-                        self.logger.debug("Failed to cleanly close FFmpeg stdin: %s", e)
+                await self._close_ffmpeg_stdin()
             return
 
         timeout = aiohttp.ClientTimeout(total=None, connect=10.0, sock_read=15.0)
@@ -226,9 +316,7 @@ class FFmpegAudioPlayer:
 
                                 bytes_downloaded += len(chunk)
 
-                                if self.ffmpeg_process.stdin:
-                                    self.ffmpeg_process.stdin.write(chunk)
-                                    await self.ffmpeg_process.stdin.drain()
+                                await self._write_to_ffmpeg(chunk)
 
                             break
 
@@ -244,12 +332,7 @@ class FFmpegAudioPlayer:
         except Exception as e:
             self.logger.error("Unexpected streaming error: %s", e, exc_info=True)
         finally:
-            if self.ffmpeg_process and self.ffmpeg_process.stdin:
-                try:
-                    self.ffmpeg_process.stdin.close()
-                    await self.ffmpeg_process.stdin.wait_closed()
-                except Exception as e:
-                    self.logger.debug("Failed to cleanly close FFmpeg stdin: %s", e)
+            await self._close_ffmpeg_stdin()
             if self.session and not self.session.closed:
                 await self.session.close()
                 self.session = None
@@ -286,7 +369,7 @@ class FFmpegAudioPlayer:
         self.stopped_playing = None
 
         ffmpeg_command = [
-            "/usr/bin/ffmpeg",
+            self.ffmpeg_path,
             "-i",
             "pipe:0",
             "-acodec",
@@ -401,6 +484,8 @@ class FFmpegAudioPlayer:
         self.seconds = 0.0
 
         self.Callback("Stop")
+
+        self.callbacks.clear()
 
         return True
 

@@ -38,6 +38,8 @@ from torchlight.Utils import Utils
 
 class BaseCommand:
     order = 0
+    # Echo the command back to chat when it was triggered from a menu selection.
+    echo_from_menu = False
 
     def __init__(
         self,
@@ -78,6 +80,9 @@ class BaseCommand:
 
     def command_name(self) -> str:
         return self.__class__.__name__
+
+    def close(self) -> None:
+        """Release resources held by this command before it is dropped (e.g. on reload)."""
 
     def check_chat_cooldown(self, player: Player) -> bool:
         if player.chat_cooldown > self.torchlight.loop.time():
@@ -419,6 +424,11 @@ class OpenWeather(BaseCommand):
         self.city_filename = self.torchlight.config["GeoIP"]["CityFilename"]
         self.geo_ip = geoip2.database.Reader(f"{self.config_folder}/{self.city_filename}")
 
+    def close(self) -> None:
+        # CommandHandler.Setup() rebuilds every command on each reload; without this the
+        # previous Reader's mmap of the GeoIP database is only released on GC (issue #55).
+        self.geo_ip.close()
+
     def degreeToCardinal(self, degree: int) -> str:
         directions = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
         return directions[int(((degree + 22.5) / 45.0) % 8)]
@@ -603,6 +613,8 @@ class VoteDisable(BaseCommand):
 
 
 class VoiceTrigger(BaseCommand):
+    echo_from_menu = True
+
     def _setup(self) -> None:
         self.logger.debug(sys._getframe().f_code.co_name)
         for trigger in self.trigger_manager.voice_triggers.keys():
@@ -749,6 +761,9 @@ class VoiceTrigger(BaseCommand):
 
 
 class Random(VoiceTrigger):
+    # Kept off to preserve the previous exact-class-name behavior; VoiceTrigger enables it.
+    echo_from_menu = False
+
     def _setup(self) -> None:
         self.logger.debug(sys._getframe().f_code.co_name)
 
@@ -1408,6 +1423,8 @@ class Exec(BaseCommand):
 
 
 class MyInstantsSearch(BaseCommand):
+    echo_from_menu = True
+
     async def _func(self, message: list[str], player: Player) -> int:
         self.logger.debug(sys._getframe().f_code.co_name + " " + str(message))
 
