@@ -1,11 +1,25 @@
 import asyncio
 import logging
-import math
 from collections.abc import Coroutine
 from typing import Any
 
+import aiohttp
+
 
 class Utils:
+    @staticmethod
+    async def FetchText(url: str, *, timeout: float = 10, params: dict[str, str] | None = None) -> str:
+        # timeout is the total budget for connecting and reading the body.
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+            async with session.get(url, params=params) as resp:
+                return await resp.text()
+
+    @staticmethod
+    async def FetchJson(url: str, *, timeout: float = 10, params: dict[str, str] | None = None) -> Any:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
+            async with session.get(url, params=params) as resp:
+                return await resp.json()
+
     @staticmethod
     def FireAndForget(coro: Coroutine[Any, Any, Any], logger: logging.Logger) -> asyncio.Task:
         # Logs exceptions instead of letting asyncio silently discard them on an untracked task.
@@ -45,8 +59,6 @@ class Utils:
                 break
 
             val = int(val_raw)
-            if not val:
-                break
 
             if val < 0:
                 time_str = time_str[1:]
@@ -54,7 +66,7 @@ class Utils:
                     negative = True
             val = abs(val)
 
-            val_len = int(math.log10(val)) + 1
+            val_len = len(val_raw[1:] if val_raw.startswith("-") else val_raw)
             if len(time_str) > val_len:
                 Mult = time_str[val_len].lower()
                 time_str = time_str[val_len + 1 :]
